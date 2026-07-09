@@ -325,7 +325,7 @@ def make_corr_heatmap(corr):
 # ============================================================
 # 6. TABS
 # ============================================================
-tab_predict, tab_diagnostics = st.tabs(["🎯  Live Predictor", "📊  Model Diagnostics"])
+tab_predict, tab_diagnostics = st.tabs(["🎯Predictor", "📊 Model Diagnostics"])
 
 # ------------------------------------------------------------
 # TAB 1: PREDICTOR
@@ -348,7 +348,7 @@ with tab_predict:
                 risk = st.slider(f"{VAR_ICONS['PR']}  Perceived Risk (PR)", 1.0, 5.0, 3.0, 0.1)
                 fin_lit = st.slider(f"{VAR_ICONS['FL']}  Financial Literacy (FL)", 1.0, 5.0, 3.5, 0.1)
                 tech_aware = st.slider(f"{VAR_ICONS['TA']}  Technological Awareness (TA)", 1.0, 5.0, 3.5, 0.1)
-                submitted = st.form_submit_button("🎯  Predict Adoption Intent")
+                submitted = st.form_submit_button("🎯 Predict AI Adoption")
 
     with col_right:
         with st.container(border=True, key="right_panel"):
@@ -478,8 +478,6 @@ with tab_diagnostics:
 # ============================================================
 st.markdown("""
 <div class="footer-note">
-    This predictive tool is developed strictly for academic research purposes as part of an MBA thesis dissertation.
-    The underlying algorithm uses Multiple Linear Regression, trained offline and loaded here as a serialized
-    (pickled) artifact, with standardized-coefficient and contribution-based explainability layered on top.
+    This predictive tool is developed strictly for academic research purposes as part of our thesis dissertation.
 </div>
 """, unsafe_allow_html=True)
