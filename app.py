@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import joblib
+import os
 import plotly.graph_objects as go
-from sklearn.linear_model import LinearRegression
 
 # ============================================================
 # 1. PAGE CONFIGURATION
@@ -22,7 +23,12 @@ VAR_LABELS = {
     "FL": "Financial Literacy",
     "TA": "Technological Awareness",
 }
+VAR_ICONS = {
+    "TR": "🤝", "PU": "⚡", "PEOU": "🧭", "PR": "⚠️", "FL": "📚", "TA": "📡",
+}
 VAR_ORDER = ["TR", "PU", "PEOU", "PR", "FL", "TA"]
+
+ARTIFACT_PATH = "model_artifacts.pkl"
 
 # ============================================================
 # 2. DESIGN SYSTEM — CSS
@@ -54,9 +60,8 @@ st.markdown("""
     /* ---------- Hero ---------- */
     .hero {
         background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
-        border-radius: 16px;
-        padding: 38px 44px;
-        margin-bottom: 26px;
+        border-radius: 16px 16px 0 0;
+        padding: 38px 44px 30px 44px;
         box-shadow: 0 10px 30px -12px rgba(15, 41, 66, 0.45);
         position: relative;
         overflow: hidden;
@@ -78,6 +83,22 @@ st.markdown("""
     .hero-sub { font-size: 14px; color: #c3d3e8; line-height: 1.6; max-width: 720px; }
     .hero-meta { margin-top: 16px; font-size: 12.5px; color: #8fa7c4; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 12px; }
 
+    /* ---------- Model status strip ---------- */
+    .status-strip {
+        background: #0c2036;
+        border-radius: 0 0 16px 16px;
+        padding: 10px 44px;
+        margin-bottom: 26px;
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12px; color: #a9bcd6; font-weight: 500;
+    }
+    .status-dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.2);
+        display: inline-block; flex-shrink: 0;
+    }
+    .status-strip b { color: #d7e3f5; font-weight: 700; }
+
     /* ---------- Tabs (pill style) ---------- */
     .stTabs [data-baseweb="tab-list"] { gap: 6px; background: #eef1f6; padding: 5px; border-radius: 12px; }
     .stTabs [data-baseweb="tab"] {
@@ -92,20 +113,14 @@ st.markdown("""
     .section-label { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
     .section-desc { font-size: 13.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.55; }
 
-    /* ---------- Real Streamlit bordered containers, styled as cards ----------
-       These target st.container(border=True, key=...) blocks, which is the
-       correct way to visually wrap native widgets (sliders, charts, dataframes)
-       — a raw HTML <div> from st.markdown cannot wrap separately-rendered
-       Streamlit elements, so panels are built with real containers instead. */
-    div[class*="st-key-"] {
-        background: var(--surface);
-    }
+    /* ---------- Real Streamlit bordered containers, styled as cards ---------- */
     .st-key-left_panel, .st-key-right_panel,
     .st-key-diag_panel_1, .st-key-diag_panel_2, .st-key-diag_panel_3 {
         border-radius: 14px !important;
         border: 1px solid var(--border) !important;
         box-shadow: 0 1px 2px rgba(16,24,40,0.04);
         padding: 8px 6px !important;
+        background: var(--surface) !important;
     }
     .st-key-score_card {
         background: linear-gradient(180deg, var(--accent-soft) 0%, #ffffff 65%) !important;
@@ -138,7 +153,12 @@ st.markdown("""
     .verdict-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; color: var(--ink); }
     .verdict-body { font-size: 13px; color: #3a4657; line-height: 1.55; }
 
-    .badge { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; text-align: center; margin-bottom: 10px; }
+    .badge {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+        padding: 12px 14px; text-align: center; margin-bottom: 10px;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .badge:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(16,24,40,0.08); }
     .badge .val { font-size: 20px; font-weight: 800; color: var(--navy); }
     .badge .lab { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
 
@@ -149,7 +169,11 @@ st.markdown("""
     .insight-box b { color: var(--navy); }
 
     .kpi-grid { display: flex; gap: 14px; margin-bottom: 24px; }
-    .kpi { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+    .kpi {
+        flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+        padding: 18px 20px; transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .kpi:hover { transform: translateY(-2px); box-shadow: 0 6px 14px rgba(16,24,40,0.08); }
     .kpi .kpi-val { font-size: 26px; font-weight: 800; color: var(--navy); }
     .kpi .kpi-lab { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 4px; }
 
@@ -162,7 +186,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================
-# 3. HERO HEADER
+# 3. LOAD TRAINED ARTIFACTS (no training happens here)
+# ============================================================
+@st.cache_resource
+def load_artifacts():
+    if not os.path.exists(ARTIFACT_PATH):
+        st.error(
+            f"Model file '{ARTIFACT_PATH}' not found. Run `python train_model.py` "
+            "first to train and save the model, then restart this app."
+        )
+        st.stop()
+    return joblib.load(ARTIFACT_PATH)
+
+DATA = load_artifacts()
+model = DATA["model"]
+
+# ============================================================
+# 4. HERO HEADER + MODEL STATUS STRIP
 # ============================================================
 st.markdown("""
 <div class="hero">
@@ -177,38 +217,16 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# ============================================================
-# 4. TRAIN THE MODEL + PRECOMPUTE DIAGNOSTICS
-# ============================================================
-@st.cache_resource
-def load_everything():
-    df = pd.read_csv('MBA_AI_Investment_Dataset.csv')
-    X = df[VAR_ORDER]
-    y = df['AD']
-
-    model = LinearRegression()
-    model.fit(X, y)
-
-    r2 = model.score(X, y)
-    n = len(df)
-    p = X.shape[1]
-    adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1)
-
-    means = X.mean()
-    stds = X.std()
-    y_std = y.std()
-
-    std_coefs = pd.Series(model.coef_, index=VAR_ORDER) * stds / y_std
-    corr = X.corr()
-
-    return {
-        "model": model, "df": df, "means": means, "stds": stds,
-        "r2": r2, "adj_r2": adj_r2, "n": n, "std_coefs": std_coefs, "corr": corr,
-        "y": y,
-    }
-
-DATA = load_everything()
-model = DATA["model"]
+st.markdown(f"""
+<div class="status-strip">
+    <span class="status-dot"></span>
+    <span><b>Model loaded from trained artifact</b> &nbsp;·&nbsp;
+    trained {DATA['trained_at']} &nbsp;·&nbsp;
+    N={DATA['n']} &nbsp;·&nbsp;
+    R²={DATA['r2']:.3f} &nbsp;·&nbsp;
+    inference only, no retraining at runtime</span>
+</div>
+""", unsafe_allow_html=True)
 
 # ============================================================
 # 5. CHART HELPERS
@@ -324,12 +342,12 @@ with tab_predict:
                 unsafe_allow_html=True,
             )
             with st.form("prediction_form"):
-                trust = st.slider("Trust (TR)", 1.0, 5.0, 3.5, 0.1)
-                usefulness = st.slider("Perceived Usefulness (PU)", 1.0, 5.0, 3.5, 0.1)
-                ease = st.slider("Perceived Ease of Use (PEOU)", 1.0, 5.0, 3.5, 0.1)
-                risk = st.slider("Perceived Risk (PR)", 1.0, 5.0, 3.0, 0.1)
-                fin_lit = st.slider("Financial Literacy (FL)", 1.0, 5.0, 3.5, 0.1)
-                tech_aware = st.slider("Technological Awareness (TA)", 1.0, 5.0, 3.5, 0.1)
+                trust = st.slider(f"{VAR_ICONS['TR']}  Trust (TR)", 1.0, 5.0, 3.5, 0.1)
+                usefulness = st.slider(f"{VAR_ICONS['PU']}  Perceived Usefulness (PU)", 1.0, 5.0, 3.5, 0.1)
+                ease = st.slider(f"{VAR_ICONS['PEOU']}  Perceived Ease of Use (PEOU)", 1.0, 5.0, 3.5, 0.1)
+                risk = st.slider(f"{VAR_ICONS['PR']}  Perceived Risk (PR)", 1.0, 5.0, 3.0, 0.1)
+                fin_lit = st.slider(f"{VAR_ICONS['FL']}  Financial Literacy (FL)", 1.0, 5.0, 3.5, 0.1)
+                tech_aware = st.slider(f"{VAR_ICONS['TA']}  Technological Awareness (TA)", 1.0, 5.0, 3.5, 0.1)
                 submitted = st.form_submit_button("🎯  Predict Adoption Intent")
 
     with col_right:
@@ -451,7 +469,7 @@ with tab_diagnostics:
 
     with st.container(border=True, key="diag_panel_3"):
         st.markdown('<div class="section-label">Sample Descriptive Statistics</div>', unsafe_allow_html=True)
-        desc = DATA["df"][VAR_ORDER + ["AD"]].describe().T.round(2)
+        desc = DATA["desc"].copy()
         desc.index = [VAR_LABELS.get(i, i) for i in desc.index]
         st.dataframe(desc, use_container_width=True)
 
@@ -461,7 +479,8 @@ with tab_diagnostics:
 st.markdown("""
 <div class="footer-note">
     This predictive tool is developed strictly for academic research purposes as part of an MBA thesis dissertation.
-    The underlying algorithm uses Multiple Linear Regression trained on primary survey data, with standardized-coefficient
-    and contribution-based explainability layered on top for interpretability.
+    The underlying algorithm uses Multiple Linear Regression, trained offline and loaded here as a serialized
+    (pickled) artifact, with standardized-coefficient and contribution-based explainability layered on top.
 </div>
 """, unsafe_allow_html=True)
+
